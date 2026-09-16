@@ -145,4 +145,26 @@ public class DensityCalculationService {
         return densitiesPerEos;
     }
 
+    public double[] densityForFixedKij(CubicEoS eosModel, String eosName, String phase,
+                                       double[] kij, double[] temperatures) {
+        double[] densities = new double[temperatures.length];
+        for (int i = 0; i < temperatures.length; i++) {
+            eosModel.setEos(eosName);
+            eosModel.setKij(kij);
+            eosModel.setTemperature(temperatures[i]);
+            densities[i] = eosModel.density(phase);
+        }
+        return densities;
+    }
+
+    public Map<String, double[]> densityAllModelsFixedKij(CubicEoS eosModel, String phase,
+                                                          double[] kij, double[] temperatures) {
+        Map<String, double[]> result = new LinkedHashMap<>();
+        for (String eosName : CubicEoS.EOS_NAMES) {
+            result.put(eosName, densityForFixedKij(eosModel, eosName, phase, kij, temperatures));
+        }
+        return result;
+    }
+
+
 }

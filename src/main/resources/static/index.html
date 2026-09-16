@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CubicEOS Lab — Web (Fase Vapor)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        :root{
+          --bg:#0f172a; --panel:#111827; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8;
+          --border:#1f2937; --warn:#f59e0b;
+        }
+        *{box-sizing:border-box;}
+        body{margin:0; background:var(--bg); color:var(--text); font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;}
+        header{padding:24px 32px 8px;}
+        header h1{margin:0 0 4px; font-size:1.5rem;}
+        header p{margin:0; color:var(--muted); font-size:0.9rem;}
+        main{display:grid; grid-template-columns:380px 1fr; gap:20px; padding:20px 32px 40px; align-items:start;}
+        @media (max-width:900px){ main{grid-template-columns:1fr;} }
+        section.panel{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px 20px;}
+        section.panel h2{margin-top:0; font-size:1rem; color:var(--accent);}
+        label{display:block; font-size:0.82rem; color:var(--muted); margin:10px 0 4px;}
+        select, input[type=number]{width:100%; padding:7px 9px; background:#0b1220; color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:0.9rem;}
+        .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+        button{margin-top:16px; width:100%; padding:10px; border:none; border-radius:8px; background:var(--accent); color:#031017; font-weight:600; cursor:pointer; font-size:0.95rem;}
+        button:hover{opacity:0.9;}
+        #warning{margin-top:10px; font-size:0.8rem; color:var(--warn); min-height:1em;}
+        canvas{max-height:420px;}
+        table{width:100%; border-collapse:collapse; margin-top:14px; font-size:0.82rem;}
+        th, td{padding:6px 8px; border-bottom:1px solid var(--border); text-align:left;}
+        th{color:var(--muted); font-weight:500;}
+        .badge{display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; background:#0b1220; border:1px solid var(--border); color:var(--muted);}
+        footer{padding:0 32px 30px; color:var(--muted); font-size:0.78rem;}
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>CubicEOS Lab — Web <span class="badge">fase vapor</span></h1>
+    <p>Interface interativa que consome a mesma API Java (VDW, RK, SRK, PR) validada no relatorio do Grupo 4.</p>
+</header>
+
+<main>
+    <section class="panel">
+        <h2>Entradas</h2>
+
+        <label>Componente 1</label>
+        <select id="comp1"></select>
+
+        <label>Componente 2 (ou "Nenhum" para fluido puro)</label>
+        <select id="comp2"></select>
+
+        <label>Fracao molar do componente 1 (x1)</label>
+        <input type="number" id="x1" value="0.9472" min="0" max="1" step="0.001">
+
+        <label>Parametro de interacao binaria (k12)</label>
+        <input type="number" id="kij" value="0" min="-0.7" max="0.7" step="0.01">
+
+        <div class="row2">
+            <div>
+                <label>Pressao (bar)</label>
+                <input type="number" id="pressure" value="346.06" min="0.1" step="1">
+            </div>
+            <div>
+                <label>Temperatura de referencia (K)</label>
+                <input type="number" id="tref" value="300" min="1" step="1">
+            </div>
+        </div>
+
+        <div class="row2">
+            <div>
+                <label>T minima da curva (K)</label>
+                <input type="number" id="tmin" value="256" step="1">
+            </div>
+            <div>
+                <label>T maxima da curva (K)</label>
+                <input type="number" id="tmax" value="422" step="1">
+            </div>
+        </div>
+
+        <button id="calcBtn">Calcular densidade</button>
+        <div id="warning"></div>
+    </section>
+
+    <section class="panel">
+        <h2>Densidade vs. Temperatura (fase vapor)</h2>
+        <canvas id="chart"></canvas>
+
+        <h2 style="margin-top:22px;">Resultado no ponto de referencia</h2>
+        <table id="resultTable">
+            <thead><tr><th>Modelo</th><th>Densidade (kg/m3)</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </section>
+</main>
+
+<footer>
+    Os quatro modelos sao calculados pela API Java (Apache Commons Math / LaguerreSolver), a mesma logica do CommandLineRunner do projeto. Esta pagina apenas envia os parametros e desenha o grafico.
+</footer>
+
+<script>
+    const COMPONENTS = {
+      none:     { label: "Nenhum", Tc: null, Pc: null, w: null, M: null },
+      methane:  { label: "Metano (CH4)",   Tc: 190.564, Pc: 4.5992e6, w: 0.01142, M: 16.043 },
+      propane:  { label: "Propano (C3H8)", Tc: 369.89,  Pc: 4.2512e6, w: 0.1521,  M: 44.097 },
+      ethane:   { label: "Etano (C2H6)",   Tc: 305.3,   Pc: 4.872e6,  w: 0.100,   M: 30.070 },
+      nbutane:  { label: "n-Butano",       Tc: 425.1,   Pc: 3.796e6,  w: 0.200,   M: 58.120 },
+      nhexane:  { label: "n-Hexano",       Tc: 507.82,  Pc: 3.0441e6, w: 0.300,   M: 86.18  },
+      co2:      { label: "CO2",            Tc: 304.2,   Pc: 7.383e6,  w: 0.224,   M: 44.010 },
+      nitrogen: { label: "Nitrogenio (N2)",Tc: 126.2,   Pc: 3.400e6,  w: 0.037,   M: 28.013 }
+    };
+
+    const comp1Select = document.getElementById("comp1");
+    const comp2Select = document.getElementById("comp2");
+    Object.entries(COMPONENTS).forEach(([key, c]) => {
+      comp1Select.add(new Option(c.label, key));
+      comp2Select.add(new Option(c.label, key));
+    });
+    comp1Select.value = "methane";
+    comp2Select.value = "propane";
+
+    let chart = null;
+
+    async function postJson(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || ("Erro HTTP " + response.status));
+      }
+      return response.json();
+    }
+
+    document.getElementById("calcBtn").addEventListener("click", async () => {
+      const warningEl = document.getElementById("warning");
+      warningEl.textContent = "";
+
+      const c1key = comp1Select.value;
+      const c2key = comp2Select.value;
+      const usingMixture = c2key !== "none";
+
+      const comps = usingMixture ? [COMPONENTS[c1key], COMPONENTS[c2key]] : [COMPONENTS[c1key]];
+
+      let x1 = parseFloat(document.getElementById("x1").value);
+      if (!usingMixture) x1 = 1;
+
+      const criticalTemperature = comps.map((c) => c.Tc);
+      const criticalPressure = comps.map((c) => c.Pc);
+      const acentricFactor = comps.map((c) => c.w);
+      const molarMass = comps.map((c) => c.M);
+      const molFraction = usingMixture ? [x1, 1 - x1] : [1];
+      const kij = usingMixture ? [parseFloat(document.getElementById("kij").value) || 0] : [0];
+
+      const pressure = parseFloat(document.getElementById("pressure").value) * 1e5;
+      const tref = parseFloat(document.getElementById("tref").value);
+      const tmin = parseFloat(document.getElementById("tmin").value);
+      const tmax = parseFloat(document.getElementById("tmax").value);
+
+      if (tmin >= tmax) {
+        warningEl.textContent = "T minima deve ser menor que T maxima.";
+        return;
+      }
+
+      const basePayload = {
+        pressure, criticalTemperature, criticalPressure,
+        acentricFactor, molFraction, molarMass, kij
+      };
+
+      try {
+        const pointResult = await postJson("/api/density/point", { ...basePayload, temperature: tref });
+        const seriesResult = await postJson("/api/density/series", {
+          ...basePayload, temperatureMin: tmin, temperatureMax: tmax, points: 25
+        });
+
+        const tbody = document.querySelector("#resultTable tbody");
+        tbody.innerHTML = "";
+        Object.entries(pointResult).forEach(([model, density]) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${model}</td><td>${density.toFixed(3)}</td>`;
+          tbody.appendChild(row);
+        });
+
+        const colors = { VDW: "#f59e0b", RK: "#22c55e", SRK: "#a78bfa", PR: "#38bdf8" };
+        const datasets = Object.entries(seriesResult.densities).map(([model, values]) => ({
+          label: model,
+          data: values,
+          borderColor: colors[model],
+          backgroundColor: colors[model],
+          tension: 0.25,
+          pointRadius: 2
+        }));
+
+        const ctx = document.getElementById("chart").getContext("2d");
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: "line",
+          data: { labels: seriesResult.temperatures.map((t) => t.toFixed(0)), datasets },
+          options: {
+            responsive: true,
+            scales: {
+              x: { title: { display: true, text: "Temperatura (K)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } },
+              y: { title: { display: true, text: "Densidade (kg/m3)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } }
+            },
+            plugins: { legend: { labels: { color: "#e2e8f0" } } }
+          }
+        });
+      } catch (err) {
+        warningEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById("calcBtn").click();
+</script>
+
+</body>
+</html>

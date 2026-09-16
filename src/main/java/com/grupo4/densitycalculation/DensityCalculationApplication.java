@@ -5,14 +5,20 @@ import com.grupo4.densitycalculation.service.ChartService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import com.grupo4.densitycalculation.service.DensityCalculationService;
+import com.grupo4.densitycalculation.service.ResultCsvExporter;
 
 @SpringBootApplication
 public class DensityCalculationApplication implements CommandLineRunner {
 
     private final ChartService chartService;
+    private final DensityCalculationService densityCalculationService;
+    private final ResultCsvExporter resultCsvExporter = new ResultCsvExporter();
 
-    public DensityCalculationApplication(ChartService chartService) {
+    public DensityCalculationApplication(ChartService chartService,
+                                         DensityCalculationService densityCalculationService) {
         this.chartService = chartService;
+        this.densityCalculationService = densityCalculationService;
     }
 
     public static void main(String[] args) {
@@ -38,21 +44,83 @@ public class DensityCalculationApplication implements CommandLineRunner {
         double[] expTemperature = {256.10, 311.0, 366.40, 421.52};
         double[] expDensity = {305.13, 242.27, 195.80, 163.74};
 
-        CubicEoS predictiveModel = new CubicEoS(pressure, criticalTemperature, criticalPressure,
-                acentricFactor, molFraction, molarMass, kij);
+        CubicEoS predictiveModel = new CubicEoS(
+                pressure,
+                criticalTemperature,
+                criticalPressure,
+                acentricFactor,
+                molFraction,
+                molarMass,
+                kij
+        );
 
-        chartService.plotDensityVersusTemperature(predictiveModel, "vapor", expDensity, expTemperature,
-                "Karimi et al. 2016", true, "output/gas_phase_predictive.png");
-        chartService.plotDeviation(predictiveModel, "vapor", expDensity, expTemperature, true,
-                "output/gas_phase_predictive_deviation.png");
+        chartService.plotDensityVersusTemperature(
+                predictiveModel,
+                "vapor",
+                expDensity,
+                expTemperature,
+                "Karimi et al. 2016",
+                true,
+                "output/gas_phase_predictive.png"
+        );
 
-        CubicEoS fittedModel = new CubicEoS(pressure, criticalTemperature, criticalPressure,
-                acentricFactor, molFraction, molarMass, kij);
+        chartService.plotDeviation(
+                predictiveModel,
+                "vapor",
+                expDensity,
+                expTemperature,
+                true,
+                "output/gas_phase_predictive_deviation.png"
+        );
 
-        chartService.plotDensityVersusTemperature(fittedModel, "vapor", expDensity, expTemperature,
-                "Karimi et al. 2016", false, "output/gas_phase_fitted.png");
-        chartService.plotDeviation(fittedModel, "vapor", expDensity, expTemperature, false,
-                "output/gas_phase_fitted_deviation.png");
+        resultCsvExporter.export(
+                predictiveModel,
+                densityCalculationService,
+                "vapor",
+                expDensity,
+                expTemperature,
+                true,
+                "resultados/gas_phase_predictive.csv"
+        );
+
+        CubicEoS fittedModel = new CubicEoS(
+                pressure,
+                criticalTemperature,
+                criticalPressure,
+                acentricFactor,
+                molFraction,
+                molarMass,
+                kij
+        );
+
+        chartService.plotDensityVersusTemperature(
+                fittedModel,
+                "vapor",
+                expDensity,
+                expTemperature,
+                "Karimi et al. 2016",
+                false,
+                "output/gas_phase_fitted.png"
+        );
+
+        chartService.plotDeviation(
+                fittedModel,
+                "vapor",
+                expDensity,
+                expTemperature,
+                false,
+                "output/gas_phase_fitted_deviation.png"
+        );
+
+        resultCsvExporter.export(
+                fittedModel,
+                densityCalculationService,
+                "vapor",
+                expDensity,
+                expTemperature,
+                false,
+                "resultados/gas_phase_fitted.csv"
+        );
     }
 
     private void runLiquidPhaseCaseStudy() throws Exception {
@@ -74,6 +142,9 @@ public class DensityCalculationApplication implements CommandLineRunner {
                 "Ramos-Estrada et al. 2006", true, "output/liquid_phase_predictive.png");
         chartService.plotDeviation(model, "liquid", expDensity, expTemperature, true,
                 "output/liquid_phase_predictive_deviation.png");
+
+        resultCsvExporter.export(model, densityCalculationService, "liquid",
+                expDensity, expTemperature, true, "resultados/liquid_phase_predictive.csv");
     }
 
 }
