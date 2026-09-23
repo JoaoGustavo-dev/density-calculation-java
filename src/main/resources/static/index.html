@@ -30,6 +30,7 @@
         th, td{padding:6px 8px; border-bottom:1px solid var(--border); text-align:left;}
         th{color:var(--muted); font-weight:500;}
         .badge{display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; background:#0b1220; border:1px solid var(--border); color:var(--muted);}
+        .hint{font-size:0.78rem; color:var(--muted); margin-top:6px;}
         footer{padding:0 32px 30px; color:var(--muted); font-size:0.78rem;}
     </style>
 </head>
@@ -78,6 +79,14 @@
             </div>
         </div>
 
+        <label>Modelo de referencia para o desvio</label>
+        <select id="refModel">
+            <option value="PR">Peng-Robinson (PR)</option>
+            <option value="SRK">Soave-Redlich-Kwong (SRK)</option>
+            <option value="RK">Redlich-Kwong (RK)</option>
+            <option value="VDW">van der Waals (VDW)</option>
+        </select>
+
         <button id="calcBtn">Calcular densidade</button>
         <div id="warning"></div>
     </section>
@@ -91,11 +100,20 @@
             <thead><tr><th>Modelo</th><th>Densidade (kg/m3)</th></tr></thead>
             <tbody></tbody>
         </table>
+
+        <h2 style="margin-top:22px;" id="deviationTitle">Desvio relativo ao modelo de referencia</h2>
+        <p class="hint">
+            Não é o MRD do relatorio (que compara com dado experimental). Aqui, cada modelo é
+            comparado contra o modelo de referência escolhido, ao longo de toda a faixa de
+            temperatura calculada. Quanto menor a barra, mais próximo esse modelo fica da referência
+            para os parâmetros informados.
+        </p>
+        <canvas id="deviationChart"></canvas>
     </section>
 </main>
 
 <footer>
-    Os quatro modelos sao calculados pela API Java (Apache Commons Math / LaguerreSolver), a mesma logica do CommandLineRunner do projeto. Esta pagina apenas envia os parametros e desenha o grafico.
+    Os quatro modelos sao calculados pela API Java (Apache Commons Math / LaguerreSolver), a mesma logica do CommandLineRunner do projeto. Esta pagina apenas envia os parametros e desenha os graficos.
 </footer>
 
 <script>
@@ -110,6 +128,8 @@
       nitrogen: { label: "Nitrogenio (N2)",Tc: 126.2,   Pc: 3.400e6,  w: 0.037,   M: 28.013 }
     };
 
+    const MODEL_COLORS = { VDW: "#f59e0b", RK: "#22c55e", SRK: "#a78bfa", PR: "#38bdf8" };
+
     const comp1Select = document.getElementById("comp1");
     const comp2Select = document.getElementById("comp2");
     Object.entries(COMPONENTS).forEach(([key, c]) => {
@@ -120,6 +140,7 @@
     comp2Select.value = "propane";
 
     let chart = null;
+    let deviationChart = null;
 
     async function postJson(url, body) {
       const response = await fetch(url, {
@@ -132,6 +153,27 @@
         throw new Error(text || ("Erro HTTP " + response.status));
       }
       return response.json();
+    }
+
+    // Recebe { VDW:[...], RK:[...], SRK:[...], PR:[...] } (um valor por temperatura)
+    // e devolve o desvio percentual medio de cada modelo em relacao ao modelo de
+    // referencia escolhido, ao longo de toda a serie de temperaturas.
+    function computeAverageDeviation(densities, referenceModel) {
+      const referenceValues = densities[referenceModel];
+      const result = {};
+
+      Object.entries(densities).forEach(([model, values]) => {
+        if (model === referenceModel) return;
+
+        let sumPercentDeviation = 0;
+        for (let i = 0; i < values.length; i++) {
+          const refValue = referenceValues[i];
+          sumPercentDeviation += Math.abs(values[i] - refValue) / refValue * 100;
+        }
+        result[model] = sumPercentDeviation / values.length;
+      });
+
+      return result;
     }
 
     document.getElementById("calcBtn").addEventListener("click", async () => {
@@ -158,6 +200,7 @@
       const tref = parseFloat(document.getElementById("tref").value);
       const tmin = parseFloat(document.getElementById("tmin").value);
       const tmax = parseFloat(document.getElementById("tmax").value);
+      const referenceModel = document.getElementById("refModel").value;
 
       if (tmin >= tmax) {
         warningEl.textContent = "T minima deve ser menor que T maxima.";
@@ -183,12 +226,12 @@
           tbody.appendChild(row);
         });
 
-        const colors = { VDW: "#f59e0b", RK: "#22c55e", SRK: "#a78bfa", PR: "#38bdf8" };
+        // --- Grafico 1: densidade vs temperatura ---
         const datasets = Object.entries(seriesResult.densities).map(([model, values]) => ({
           label: model,
           data: values,
-          borderColor: colors[model],
-          backgroundColor: colors[model],
+          borderColor: MODEL_COLORS[model],
+          backgroundColor: MODEL_COLORS[model],
           tension: 0.25,
           pointRadius: 2
         }));
@@ -205,6 +248,41 @@
               y: { title: { display: true, text: "Densidade (kg/m3)", color: "#94a3b8" }, ticks: { color: "#94a3b8" } }
             },
             plugins: { legend: { labels: { color: "#e2e8f0" } } }
+          }
+        });
+
+        // --- Grafico 2: desvio relativo ao modelo de referencia ---
+        document.getElementById("deviationTitle").textContent =
+          `Desvio relativo ao modelo de referencia (${referenceModel})`;
+
+        const deviation = computeAverageDeviation(seriesResult.densities, referenceModel);
+        const deviationModels = Object.keys(deviation);
+        const deviationValues = deviationModels.map((m) => deviation[m]);
+        const deviationColors = deviationModels.map((m) => MODEL_COLORS[m]);
+
+        const deviationCtx = document.getElementById("deviationChart").getContext("2d");
+        if (deviationChart) deviationChart.destroy();
+        deviationChart = new Chart(deviationCtx, {
+          type: "bar",
+          data: {
+            labels: deviationModels,
+            datasets: [{
+              label: `Desvio medio vs. ${referenceModel} (%)`,
+              data: deviationValues,
+              backgroundColor: deviationColors
+            }]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { ticks: { color: "#94a3b8" } },
+              y: {
+                title: { display: true, text: "Desvio medio (%)", color: "#94a3b8" },
+                ticks: { color: "#94a3b8" },
+                beginAtZero: true
+              }
+            },
+            plugins: { legend: { display: false } }
           }
         });
       } catch (err) {
